@@ -3,8 +3,9 @@ name: Build Plugin Dev Release
 on:
   push:
     branches:
-      - "develop"
       - "vaccfr"
+      - "develop"
+      - "clangci"
 
 env:
   DLL_NAME: vACDM.dll
@@ -55,7 +56,11 @@ jobs:
       - name: Install MSVC toolset
         run: choco upgrade visualstudio2022buildtools
 
-      - name: Set up MSVC environment
+      - name: Install clang-tools
+        run: |
+          "c:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe" modify --installPath "C:\Program Files\Microsoft Visual Studio\2022\Enterprise" --add Microsoft.VisualStudio.Component.VC.ClangTools --quiet --norestart
+
+      - name: Set up MSVC environent
         shell: pwsh
         run: |
           Import-Module "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
