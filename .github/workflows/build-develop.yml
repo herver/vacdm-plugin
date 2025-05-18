@@ -53,21 +53,60 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: python .github/workflows/determine_dev_release.py
 
-      - name: Install MSVC toolset
-        run: choco upgrade visualstudio2022buildtools
-
-      - name: Install clang-tools
+      - name: Install clang-tools for Visual Studio
+        shell: powershell
         run: |
-          "c:\Program Files (x86)\Microsoft Visual Studio\Installer\vs_installer.exe" modify --installPath "C:\Program Files\Microsoft Visual Studio\2022\Enterprise" --add Microsoft.VisualStudio.Component.VC.ClangTools --quiet --norestart
+          # Find VS installation path using vswhere
+          $installPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+            
+          if (-not $installPath) {
+          Write-Error "Visual Studio installation not found"
+          exit 1
+          }
+            
+          Write-Host "Found Visual Studio at: $installPath"
+            
+          # Use VS Installer to add components
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe" modify `
+          --installPath "$installPath" `
+          --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+          --add Microsoft.VisualStudio.Component.VC.ClangTools `
+          --quiet --norestart --wait
+            
+          if ($LASTEXITCODE -ne 0) {
+          Write-Error "Visual Studio component installation failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
+          }
+            
+          Write-Host "Successfully installed clang-tools"
 
-      - name: Set up MSVC environent
-        shell: pwsh
+      - name: Set up clang env
+        shell: powershell
         run: |
-          Import-Module "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
-          Enter-VsDevShell -VsInstallPath "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools"
+          # Set environment variables to force clang usage
+          echo "CC=clang-cl" >> $env:GITHUB_ENV
+          echo "CXX=clang-cl" >> $env:GITHUB_ENV
+          
+          # Verify clang is accessible
+          clang-cl --version
+          
+          # Add clang to PATH if needed
+          $clangPath = "$installPath\VC\Tools\Llvm\x64\bin"
+          if (Test-Path $clangPath) {
+            echo "$clangPath" >> $env:GITHUB_PATH
+          }
 
-      - name: Configure CMake
-        run: cmake -B build -DCMAKE_BUILD_TYPE=${{env.BUILD_CONFIGURATION}} -A Win32 -DDEV_BUILD=ON -DDEV_RELEASE_NUMBER="${{ env.DEV_RELEASE }}"
+      - name: Configure CMake with clang
+        run: |
+          cmake -B build `
+          -T ClangCL,host=x86 `
+          -A Win32 `
+          -DCMAKE_C_COMPILER=clang-cl `
+          -DCMAKE_CXX_COMPILER=clang-cl `
+          -DCMAKE_LINKER=lld-link `
+          -DDEV_BUILD=ON `
+          -DCMAKE_BUILD_TYPE=${{env.BUILD_CONFIGURATION}} `
+          -DDEV_RELEASE_NUMBER="${{ env.DEV_RELEASE }}"
 
       - name: Build DLL
         run: cmake --build build --config ${{env.BUILD_CONFIGURATION}}
